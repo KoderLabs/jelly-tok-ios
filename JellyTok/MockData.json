@@ -1,0 +1,230 @@
+[
+    {
+        "id": "post1",
+        "videoFileName": "sampleVideo1",
+        "thumbnailFileName": "thumbnail1",
+        "description": "Red train going over Turkey streets 🚆🇹🇷 #travel #turkey #trainjourney",
+        "user": {
+            "id": "user123",
+            "username": "UrbanExplorer",
+            "avatarName": "avatar1"
+        },
+        "sound": {
+            "id": "soundABC",
+            "title": "Upbeat Funk Groove",
+            "artist": "StudioMusician"
+        },
+        "likes": 15200,
+        "comments": 345,
+        "shares": 120
+    },
+    {
+        "id": "post2",
+        "videoFileName": "sampleVideo2",
+        "thumbnailFileName": "thumbnail2",
+        "description": "Two lover birds enjoying their time in town 🐦💕 #lovebirds #citylife #nature",
+        "user": {
+            "id": "user456",
+            "username": "NatureLover",
+            "avatarName": "avatar2"
+        },
+        "sound": {
+            "id": "soundDEF",
+            "title": "Calm Acoustic Melody",
+            "artist": "IndieArtist"
+        },
+        "likes": 22500,
+        "comments": 580,
+        "shares": 250
+    },
+    {
+        "id": "post3",
+        "videoFileName": "sampleVideo3",
+        "thumbnailFileName": "thumbnail3",
+        "description": "A breathtaking drone shot of a bridge stretching over the sea 🌉🌊 #droneview #oceanbridge #aerialshots",
+        "user": {
+            "id": "user789",
+            "username": "ChefMaster",
+            "avatarName": "avatar3"
+        },
+        "sound": {
+            "id": "soundGHI",
+            "title": "Sizzling Kitchen Sounds",
+            "artist": "CulinaryBeats"
+        },
+        "likes": 18900,
+        "comments": 712,
+        "shares": 180
+    },
+    {
+        "id": "post4",
+        "videoFileName": "sampleVideo4",
+        "thumbnailFileName": "thumbnail1",
+        "description": "Crystal clear water flowing over serene mountain streams ⛰️💧 #naturelovers #mountainstreams #peacefulscenery",
+        "user": {
+            "id": "user101",
+            "username": "PetAdventures",
+            "avatarName": "avatar4"
+        },
+        "sound": {
+            "id": "soundJKL",
+            "title": "Happy Go Lucky Tune",
+            "artist": "RoyaltyFree"
+        },
+        "likes": 30100,
+        "comments": 950,
+        "shares": 400
+    },
+    {
+        "id": "post5",
+        "videoFileName": "sampleVideo5",
+        "thumbnailFileName": "thumbnail5",
+        "description": "A man standing calmly as pigeons flutter around, with a majestic Turkish mosque in the background 🕊️🕌 #turkeytravel #cityscenes #peacefulmoment",
+        "user": {
+            "id": "user202",
+            "username": "TrailSeeker",
+            "avatarName": "avatar5"
+        },
+        "sound": {
+            "id": "soundMNO",
+            "title": "Golden Hour Harmony",
+            "artist": "NatureNotes"
+        },
+        "likes": 17300,
+        "comments": 420,
+        "shares": 210
+    },
+    {
+        "id": "post6",
+        "videoFileName": "sampleVideo6",
+        "thumbnailFileName": "thumbnail6",
+        "description": "A calm moment shared between a young horse and a man on open ground 🐴🤝 #animalbond #countrylife #peacefulmoments",
+        "user": {
+            "id": "user303",
+            "username": "GrooveBoss",
+            "avatarName": "avatar6"
+        },
+        "sound": {
+            "id": "soundPQR",
+            "title": "Hype Beat Drop",
+            "artist": "DJTrendz"
+        },
+        "likes": 54000,
+        "comments": 2000,
+        "shares": 1300
+    },
+    {
+        "id": "post7",
+        "videoFileName": "sampleVideo7",
+        "thumbnailFileName": "thumbnail7",
+        "description": "Tokyo streets glowing under neon lights 🌃🇯🇵 A visual symphony of the night. #tokyonights #citylights #streetvibes",
+        "user": {
+            "id": "user404",
+            "username": "CraftyQueen",
+            "avatarName": "avatar7"
+        },
+        "sound": {
+            "id": "soundSTU",
+            "title": "Chill Background Vibes",
+            "artist": "LoFiMaker"
+        },
+        "likes": 8700,
+        "comments": 185,
+        "shares": 92
+    },
+    {
+        "id": "post8",
+        "videoFileName": "sampleVideo8",
+        "thumbnailFileName": "thumbnail8",
+        "description": "Behind the scenes of our short film shoot! 🎬🎥 #bts #filmmaking",
+        "user": {
+            "id": "user505",
+            "username": "FilmJunkie",
+            "avatarName": "avatar8"
+        },
+        "sound": {
+            "id": "soundVWX",
+            "title": "Cinematic Pulse",
+            "artist": "EpicScores"
+        },
+        "likes": 14300,
+        "comments": 376,
+        "shares": 190
+    },
+    {
+        "id": "post9",
+        "videoFileName": "sampleVideo9",
+        "thumbnailFileName": "thumbnail9",
+        "description": "Quiet moments at a European underground station 🚇🇪🇺 Waiting, thinking, living. #urbanstories #undergroundvibes #europeanlife",
+        "user": {
+            "id": "user606",
+            "username": "FitFreak",
+            "avatarName": "avatar9"
+        },
+        "sound": {
+            "id": "soundYZA",
+            "title": "Pump Up Anthem",
+            "artist": "BeastModeBeats"
+        },
+        "likes": 26400,
+        "comments": 840,
+        "shares": 320
+    },
+    {
+        "id": "post10",
+        "videoFileName": "sampleVideo10",
+        "thumbnailFileName": "thumbnail10",
+        "description": "Mesmerizing view of the train tracks rushing by 🚆✨ #trainjourney #movingview #travelvibes",
+        "user": {
+            "id": "user707",
+            "username": "GlamGuru",
+            "avatarName": "avatar10"
+        },
+        "sound": {
+            "id": "soundBCD",
+            "title": "Soft Sparkle",
+            "artist": "BeautyBeats"
+        },
+        "likes": 19800,
+        "comments": 615,
+        "shares": 230
+    },
+    {
+        "id": "post11",
+        "videoFileName": "sampleVideo11",
+        "thumbnailFileName": "thumbnail11",
+        "description": "Man standing quietly, facing the wall — a moment of reflection. 🤔🧱 #thoughtful #quietmoments",
+        "user": {
+            "id": "user808",
+            "username": "GadgetGuy",
+            "avatarName": "avatar11"
+        },
+        "sound": {
+            "id": "soundEFG",
+            "title": "Digital Pop FX",
+            "artist": "FutureSounds"
+        },
+        "likes": 30900,
+        "comments": 1025,
+        "shares": 550
+    },
+    {
+        "id": "post12",
+        "videoFileName": "sampleVideo12",
+        "thumbnailFileName": "thumbnail12",
+        "description": "Crowds moving through the city — life from the ground up. 🚶‍♂️🚶‍♀️ #streetlife #citywalk #urbanvibes",
+        "user": {
+            "id": "user909",
+            "username": "SkyHigh",
+            "avatarName": "avatar12"
+        },
+        "sound": {
+            "id": "soundHIJ",
+            "title": "Adrenaline Rush",
+            "artist": "SkyBeats"
+        },
+        "likes": 47200,
+        "comments": 1890,
+        "shares": 980
+    }
+]
