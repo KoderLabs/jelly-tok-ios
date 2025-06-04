@@ -12,19 +12,34 @@ import AVFoundation
 struct CameraView: UIViewRepresentable {
     let session: AVCaptureSession
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        let previewLayer = AVCaptureVideoPreviewLayer(session: session)
-        previewLayer.videoGravity = .resizeAspectFill
-        previewLayer.frame = view.bounds
-        view.layer.addSublayer(previewLayer)
-
-        DispatchQueue.main.async {
-            previewLayer.frame = view.bounds
-        }
-
+    func makeUIView(context: Context) -> UICameraPreviewView {
+        let view = UICameraPreviewView() // Using a custom UIView subclass
+        view.previewLayer.session = session
+        view.previewLayer.videoGravity = .resizeAspectFill
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    func updateUIView(_ uiView: UICameraPreviewView, context: Context) {}
+}
+
+
+
+// Custom UIView subclass to manage previewLayer's frame correctly
+class UICameraPreviewView: UIView {
+    let previewLayer: AVCaptureVideoPreviewLayer
+
+    override init(frame: CGRect) {
+        self.previewLayer = AVCaptureVideoPreviewLayer()
+        super.init(frame: frame)
+        layer.addSublayer(previewLayer)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        previewLayer.frame = bounds // Crucial for preview to resize correctly
+    }
 }

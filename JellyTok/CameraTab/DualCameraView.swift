@@ -5,9 +5,9 @@
 //  Created by Moiz Siddiqui on 29/05/2025.
 //
 
-import SwiftUI
 import AVFoundation
 import AVKit
+import SwiftUI
 
 struct DualCameraView: View {
     @Binding var selectedTab: Tab
@@ -25,50 +25,52 @@ struct DualCameraView: View {
                 CameraView(session: cameraManager.session)
                     .frame(height: UIScreen.main.bounds.height / 2)
                     .overlay(alignment: .topLeading) {
-                        
+
                         HStack(alignment: .top) {
                             ControlIconButton(iconName: "cross_icon") {
                                 selectedTab = .feed
                             }
-                            
+
                             Spacer()
-                            
+
                             VStack(alignment: .trailing, spacing: 12) {
                                 ControlIconButton(iconName: "t_icon") {
                                     showDevelopmentSheet = true
                                 }
-                                
+
                                 ControlIconButton(iconName: "camera_cut_icon") {
                                     showDevelopmentSheet = true
                                 }
-                                
+
                                 ControlIconButton(iconName: "flash_cut_icon") {
                                     showDevelopmentSheet = true
                                 }
-                                
+
                                 ControlIconButton(iconName: "gear_icon") {
                                     showDevelopmentSheet = true
                                 }
-                                
-                                ControlIconButton(iconName: "vertical_dots_icon") {
+
+                                ControlIconButton(
+                                    iconName: "vertical_dots_icon"
+                                ) {
                                     showDevelopmentSheet = true
                                 }
-                            
+
                             }
                         }
                         .padding(.top, 60)
                         .padding(.horizontal, 16)
                     }
-                
+
                 CameraView(session: cameraManager.session)
                     .frame(height: UIScreen.main.bounds.height / 2)
             }
             .ignoresSafeArea()
-            
+
             // Recording Overlay
             VStack {
                 Spacer()
-                
+
                 if isRecording {
                     HStack(spacing: 10) {
                         Text("Duration \(recordingCountdown)s")
@@ -83,6 +85,20 @@ struct DualCameraView: View {
                     .padding(.bottom, 20)
                 }
                 
+                if cameraManager.processingBegins {
+                    HStack(spacing: 10) {
+                        Text("Saving...")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white)
+                            .bold()
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color(hex: "#B92D4A"))
+                            .clipShape(Capsule())
+                    }
+                    .padding(.bottom, 20)
+                }
+
                 HStack(alignment: .center) {
                     Button(action: {
                         selectedTab = .roll
@@ -94,7 +110,7 @@ struct DualCameraView: View {
                     }
                     .disabled(isRecording)
                     .padding(.bottom, 40)
-                    
+
                     Spacer()
                     Button(action: {
                         isRecording = true
@@ -102,19 +118,18 @@ struct DualCameraView: View {
                         startCountdown()
                         cameraManager.startRecording()
                     }) {
-                        Image("camera_button_icon")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 70, height: 70)
+                        Image(isRecording ? "camera_button_icon_recording" : "camera_button_icon")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 70, height: 70)
                     }
-                    .disabled(isRecording)
+                    .disabled(isRecording || cameraManager.processingBegins)
                     .padding(.bottom, 40)
-                    
-                    
+
                     Spacer()
                     Button(action: {
                         showDevelopmentSheet = true
-                }) {
+                    }) {
                         Image("reset_icon")
                             .resizable()
                             .aspectRatio(contentMode: .fit)
@@ -125,7 +140,7 @@ struct DualCameraView: View {
                 }
                 .padding(.horizontal)
             }
-            
+
             // To Test: Playback
             if showPlayback, let stitchedURL = cameraManager.stitchedOutputURL {
                 PlaybackOverlay(videoURL: stitchedURL)
@@ -154,10 +169,13 @@ struct DualCameraView: View {
                 }
         }
     }
-    
+
     private func startCountdown() {
         recordingTimer?.invalidate()
-        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+        recordingTimer = Timer.scheduledTimer(
+            withTimeInterval: 1.0,
+            repeats: true
+        ) { timer in
             if recordingCountdown > 1 {
                 recordingCountdown -= 1
             } else {
@@ -202,7 +220,7 @@ struct ControlIconButton: View {
 
 struct PlaybackOverlay: View {
     let videoURL: URL
-    
+
     var body: some View {
         VideoPlayer(player: AVPlayer(url: videoURL))
             .edgesIgnoringSafeArea(.all)
@@ -212,7 +230,6 @@ struct PlaybackOverlay: View {
             }
     }
 }
-
 
 #Preview {
     DualCameraView(selectedTab: .constant(.camera)).background(Color.black)

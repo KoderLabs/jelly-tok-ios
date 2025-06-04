@@ -16,7 +16,6 @@ struct CameraRollView: View {
     let tabs = ["Library", "Saved"]
 
     @State private var selectedVideo: URL? = nil
-    @State private var showFullPlayer = false
     @State private var videoURLs: [URL] = []
 
     var body: some View {
@@ -66,14 +65,9 @@ struct CameraRollView: View {
 
                     StaggeredGridView(videoURLs: videoURLs)
                 }
-                .padding(.bottom, 50)  // Optional bottom padding for safe area
+                .padding(.bottom, 50)
             }
             .edgesIgnoringSafeArea(.top)
-            .fullScreenCover(isPresented: $showFullPlayer) {
-                if let url = selectedVideo {
-                    FullscreenPlayerView(videoURL: url)
-                }
-            }
         }
         .edgesIgnoringSafeArea(.top)
         .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))

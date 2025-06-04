@@ -9,9 +9,10 @@ import SwiftUI
 import AVKit
 
 struct FullscreenPlayerView: View {
-    let videoURL: URL
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    
+    let videoURL: URL
 
     var body: some View {
         ZStack {

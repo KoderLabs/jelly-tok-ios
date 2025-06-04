@@ -5,147 +5,383 @@
 //  Created by Faique Ali on 30/05/2025.
 //
 
-import Foundation
 import AVFoundation
+import Foundation
 import UIKit
+
 
 class LocalStorageManager {
     static let shared = LocalStorageManager()
     private init() {}
-    
+
     private let fileManager = FileManager.default
-    
+
     /// Directory where saved videos will go
     private var videosDirectory: URL {
-        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let documents = fileManager.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        ).first!
         let dir = documents.appendingPathComponent("SavedVideos")
+        // Ensure the directory exists
         if !fileManager.fileExists(atPath: dir.path) {
-            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            do {
+                try fileManager.createDirectory(
+                    at: dir,
+                    withIntermediateDirectories: true,
+                    attributes: nil
+                )
+            } catch {
+                // Log error or handle more gracefully if directory creation fails
+                debugPrint("Error creating SavedVideos directory: \(error)")
+            }
         }
         return dir
     }
-    
+
+    enum StitchingError: Error {
+        case tracksNotFound(String)
+        case assetPropertyLoadFailed(String)
+        case compositionTrackError(String)
+        case exportSessionCreationFailed
+        case exportFailed(String)
+        case genericError(String)
+    }
+
     func fetchAllSavedVideos() -> [URL] {
         do {
-            let contents = try fileManager.contentsOfDirectory(at: videosDirectory, includingPropertiesForKeys: nil)
-            return contents.filter { $0.pathExtension == "mov" || $0.pathExtension == "mp4" }
+            let contents = try fileManager.contentsOfDirectory(
+                at: videosDirectory,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+            return contents.filter {
+                $0.pathExtension.lowercased() == "mov"
+                    || $0.pathExtension.lowercased() == "mp4"
+            }
         } catch {
             debugPrint("Error fetching saved videos: \(error)")
             return []
         }
     }
-    
-    // Main method to stitch and save front/back videos vertically
-    @MainActor
-    func stitchAndSaveVideos(frontURL: URL, backURL: URL) async throws -> URL {
-        return try await withCheckedThrowingContinuation { continuation in
-            stitchVideos(frontURL: frontURL, backURL: backURL) { result in
-                switch result {
-                case .success(let stitchedURL):
-                    continuation.resume(returning: stitchedURL)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
-            }
+
+    func stitchAndSaveVideos(
+        frontURL: URL,
+        backURL: URL,
+        outputSize: CGSize,
+        frontSegmentTargetSize: CGSize,
+        backSegmentTargetSize: CGSize
+    ) async throws -> URL {
+
+        let frontAsset = AVAsset(url: frontURL)
+        let backAsset = AVAsset(url: backURL)
+
+        // Load necessary properties asynchronously
+        async let frontVideoTracks = frontAsset.loadTracks(
+            withMediaType: .video
+        )
+        async let backVideoTracks = backAsset.loadTracks(withMediaType: .video)
+        async let frontAudioTracks = frontAsset.loadTracks(
+            withMediaType: .audio
+        )
+        async let frontAssetDuration = frontAsset.load(.duration)
+        async let backAssetDuration = backAsset.load(.duration)
+
+        guard let frontVideoTrack = try await frontVideoTracks.first else {
+            throw StitchingError.tracksNotFound("Front video track not found.")
         }
-    }
-    
-    private func transformedSize(of transform: CGAffineTransform, originalSize: CGSize) -> CGSize {
-        let rect = CGRect(origin: .zero, size: originalSize)
-        let transformedRect = rect.applying(transform)
-        return CGSize(width: abs(transformedRect.width), height: abs(transformedRect.height))
-    }
-    
-    private func stitchVideos(frontURL: URL, backURL: URL, completion: @escaping (Result<URL, Error>) -> Void) {
-        let videoSize = CGSize(width: 1080, height: 1920)
-        let halfHeight = videoSize.height / 2
-        
-        let frontAsset = AVURLAsset(url: frontURL)
-        let backAsset = AVURLAsset(url: backURL)
+        guard let backVideoTrack = try await backVideoTracks.first else {
+            throw StitchingError.tracksNotFound("Back video track not found.")
+        }
+
+        let minDuration = min(
+            try await frontAssetDuration,
+            try await backAssetDuration
+        )
 
         let composition = AVMutableComposition()
-
-        guard let track1 = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
-              let track2 = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
-              let frontTrack = frontAsset.tracks(withMediaType: .video).first,
-              let backTrack = backAsset.tracks(withMediaType: .video).first else {
-            return completion(.failure(NSError(domain: "TrackError", code: 2, userInfo: nil)))
-        }
-
-        let duration = min(frontAsset.duration, backAsset.duration)
-
-        do {
-            try track1.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: frontTrack, at: .zero)
-            try track2.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: backTrack, at: .zero)
-        } catch {
-            return completion(.failure(error))
-        }
-
-        // Add audio track from front video
-        if let audioTrack = frontAsset.tracks(withMediaType: .audio).first,
-           let audioCompositionTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            try? audioCompositionTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: audioTrack, at: .zero)
-        }
-
-        // Get preferred transforms
-        let frontTransform = frontTrack.preferredTransform
-        let backTransform = backTrack.preferredTransform
-
-        // Get natural sizes
-        let frontSize = transformedSize(of: frontTransform, originalSize: frontTrack.naturalSize)
-        let backSize = transformedSize(of: backTransform, originalSize: backTrack.naturalSize)
-
-        // Calculate scale ratios
-        let frontScale = halfHeight / frontSize.height
-        let backScale = halfHeight / backSize.height
-
-        // Calculate translation for centering horizontally
-        let frontXTranslation = (videoSize.width - frontSize.width * frontScale) / 2
-        let backXTranslation = (videoSize.width - backSize.width * backScale) / 2
-
-        // Compose transforms
-        let frontFinalTransform = frontTransform
-            .concatenating(CGAffineTransform(scaleX: frontScale, y: frontScale))
-            .concatenating(CGAffineTransform(translationX: frontXTranslation, y: 0))
-
-        let backFinalTransform = backTransform
-            .concatenating(CGAffineTransform(scaleX: backScale, y: backScale))
-            .concatenating(CGAffineTransform(translationX: backXTranslation, y: halfHeight))
-
-        let layerInstruction1 = AVMutableVideoCompositionLayerInstruction(assetTrack: track1)
-        layerInstruction1.setTransform(frontFinalTransform, at: .zero)
-
-        let layerInstruction2 = AVMutableVideoCompositionLayerInstruction(assetTrack: track2)
-        layerInstruction2.setTransform(backFinalTransform, at: .zero)
-
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
-        instruction.layerInstructions = [layerInstruction1, layerInstruction2]
-
         let videoComposition = AVMutableVideoComposition()
-        videoComposition.instructions = [instruction]
-        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
-        videoComposition.renderSize = videoSize
 
-        let outputURL = videosDirectory.appendingPathComponent("stitched_\(UUID().uuidString).mov")
+        videoComposition.renderSize = outputSize
+        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)  // Standard frame rate
 
-        guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
-            return completion(.failure(NSError(domain: "ExporterError", code: 3, userInfo: nil)))
+        // --- Front Video Processing ---
+        guard
+            let frontCompositionTrack = composition.addMutableTrack(
+                withMediaType: .video,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            )
+        else {
+            throw StitchingError.compositionTrackError(
+                "Could not add front video composition track."
+            )
+        }
+        do {
+            try frontCompositionTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: minDuration),
+                of: frontVideoTrack,
+                at: .zero
+            )
+        } catch {
+            throw StitchingError.compositionTrackError(
+                "Failed to insert front video track: \(error.localizedDescription)"
+            )
         }
 
-        exporter.videoComposition = videoComposition
+        let frontNaturalSize = try await frontVideoTrack.load(.naturalSize)
+        let frontPreferredTransform = try await frontVideoTrack.load(
+            .preferredTransform
+        )
+
+        let frontLayerInstruction = AVMutableVideoCompositionLayerInstruction(
+            assetTrack: frontCompositionTrack
+        )
+        let frontCropRect = calculateCropRect(
+            videoNaturalSize: frontNaturalSize,
+            previewBoundsSize: frontSegmentTargetSize,
+            videoGravity: .resizeAspectFill
+        )
+        frontLayerInstruction.setCropRectangle(frontCropRect, at: .zero)
+
+        let frontTransform = calculateTransform(
+            naturalSize: frontNaturalSize,
+            preferredTransform: frontPreferredTransform,
+            cropRect: frontCropRect,
+            targetSegmentSize: frontSegmentTargetSize,
+            outputCompositionSize: outputSize,
+            isTopSegment: false
+        )
+        frontLayerInstruction.setTransform(frontTransform, at: .zero)
+
+        // --- Back Video Processing ---
+        guard
+            let backCompositionTrack = composition.addMutableTrack(
+                withMediaType: .video,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            )
+        else {
+            throw StitchingError.compositionTrackError(
+                "Could not add back video composition track."
+            )
+        }
+        do {
+            try backCompositionTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: minDuration),
+                of: backVideoTrack,
+                at: .zero
+            )
+        } catch {
+            throw StitchingError.compositionTrackError(
+                "Failed to insert back video track: \(error.localizedDescription)"
+            )
+        }
+
+        let backNaturalSize = try await backVideoTrack.load(.naturalSize)
+        let backPreferredTransform = try await backVideoTrack.load(
+            .preferredTransform
+        )
+
+        let backLayerInstruction = AVMutableVideoCompositionLayerInstruction(
+            assetTrack: backCompositionTrack
+        )
+        let backCropRect = calculateCropRect(
+            videoNaturalSize: backNaturalSize,
+            previewBoundsSize: backSegmentTargetSize,  // Cropping for back camera
+            videoGravity: .resizeAspectFill
+        )
+        backLayerInstruction.setCropRectangle(backCropRect, at: .zero)
+
+        let backTransform = calculateTransform(
+            naturalSize: backNaturalSize,
+            preferredTransform: backPreferredTransform,
+            cropRect: backCropRect,
+            targetSegmentSize: backSegmentTargetSize,  // Slot size for back camera
+            outputCompositionSize: outputSize,
+            isTopSegment: true
+        )
+        backLayerInstruction.setTransform(backTransform, at: .zero)
+
+        // --- Audio Processing ---
+        // Using front camera's audio. Modify if you want back's or mix.
+        if let audioSourceTrack = try await frontAudioTracks.first {
+            if let audioCompositionTrack = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) {
+                do {
+                    try audioCompositionTrack.insertTimeRange(
+                        CMTimeRange(start: .zero, duration: minDuration),
+                        of: audioSourceTrack,
+                        at: .zero
+                    )
+                } catch {
+                    debugPrint(
+                        "Could not add audio track: \(error.localizedDescription)"
+                    )
+                    // Decide if this is a critical error or if video can proceed without audio
+                }
+            }
+        } else {
+            debugPrint("No audio track found in the front video asset.")
+        }
+
+        // --- Combine Instructions ---
+        let mainInstruction = AVMutableVideoCompositionInstruction()
+        mainInstruction.timeRange = CMTimeRange(
+            start: .zero,
+            duration: minDuration
+        )
+        mainInstruction.layerInstructions = [
+            backLayerInstruction, frontLayerInstruction,
+        ]  // Front video drawn "after" back
+
+        videoComposition.instructions = [mainInstruction]
+
+        // --- Export ---
+        let outputFileName = "stitched_\(UUID().uuidString).mov"
+        let outputURL = videosDirectory.appendingPathComponent(outputFileName)
+
+        removeIfExists(outputURL)  // Clean up if file already exists
+
+        guard
+            let exporter = AVAssetExportSession(
+                asset: composition,
+                presetName: AVAssetExportPresetHighestQuality
+            )
+        else {
+            throw StitchingError.exportSessionCreationFailed
+        }
+
         exporter.outputURL = outputURL
         exporter.outputFileType = .mov
+        exporter.videoComposition = videoComposition
         exporter.shouldOptimizeForNetworkUse = true
 
-        exporter.exportAsynchronously {
-            if exporter.status == .completed {
-                completion(.success(outputURL))
-            } else {
-                completion(.failure(exporter.error ?? NSError(domain: "ExportFailed", code: 4, userInfo: nil)))
+        await exporter.export()  // Perform export asynchronously
+
+        switch exporter.status {
+        case .completed:
+            debugPrint("Export completed successfully. Output: \(outputURL)")
+            return outputURL
+        case .failed:
+            let errorDescription =
+                exporter.error?.localizedDescription ?? "Unknown export error"
+            debugPrint("Export failed: \(errorDescription)")
+            if let exportError = exporter.error {
+                debugPrint("Export error details: \(exportError)")
             }
+            throw StitchingError.exportFailed(
+                "Export failed: \(errorDescription). Error: \(String(describing: exporter.error))"
+            )
+        case .cancelled:
+            throw StitchingError.exportFailed("Export cancelled.")
+        default:
+            throw StitchingError.exportFailed(
+                "Export finished with an unknown status: \(exporter.status)."
+            )
         }
     }
 
-    
+    private func calculateCropRect(
+        videoNaturalSize: CGSize,
+        previewBoundsSize: CGSize,
+        videoGravity: AVLayerVideoGravity
+    ) -> CGRect {
+        // Ensure we don't divide by zero
+        if videoNaturalSize.height == 0 || videoNaturalSize.width == 0
+            || previewBoundsSize.height == 0 || previewBoundsSize.width == 0
+        {
+            return CGRect(origin: .zero, size: videoNaturalSize)  // Return full frame if sizes are invalid
+        }
+
+        if videoGravity != .resizeAspectFill {  // Only implement .resizeAspectFill for now
+            return CGRect(origin: .zero, size: videoNaturalSize)
+        }
+
+        let videoAspectRatio = videoNaturalSize.width / videoNaturalSize.height
+        let previewAspectRatio =
+            previewBoundsSize.width / previewBoundsSize.height
+        var cropRect = CGRect(origin: .zero, size: videoNaturalSize)
+
+        if videoAspectRatio > previewAspectRatio {  // Video is wider than preview bounds; crop sides
+            let newWidth = videoNaturalSize.height * previewAspectRatio
+            cropRect.origin.x = (videoNaturalSize.width - newWidth) / 2
+            cropRect.size.width = newWidth
+        } else if videoAspectRatio < previewAspectRatio {  // Video is taller than preview bounds; crop top/bottom
+            let newHeight = videoNaturalSize.width / previewAspectRatio
+            cropRect.origin.y = (videoNaturalSize.height - newHeight) / 2
+            cropRect.size.height = newHeight
+        }
+        // else: aspect ratios are the same, no crop needed beyond natural size.
+
+        return cropRect.integral  // Use integral to avoid sub-pixel rendering issues.
+    }
+
+    private func calculateTransform(
+        naturalSize: CGSize,
+        preferredTransform: CGAffineTransform,
+        cropRect: CGRect,
+        targetSegmentSize: CGSize,
+        outputCompositionSize: CGSize,
+        isTopSegment: Bool
+    ) -> CGAffineTransform {
+
+        // 1. Create a transform that effectively makes the top-left of the cropRect the origin,
+        //    then applies the preferredTransform (which handles rotation/mirroring).
+        var transform = CGAffineTransform(
+            translationX: -cropRect.origin.x,
+            y: -cropRect.origin.y
+        )
+        transform = transform.concatenating(preferredTransform)
+
+        // 2. Determine the size of the *cropped and oriented* video.
+        //    Applying preferredTransform to cropRect.size will give us this.
+        let croppedAndOrientedRect = CGRect(origin: .zero, size: cropRect.size)
+            .applying(preferredTransform)
+        let effectiveCroppedWidth = abs(croppedAndOrientedRect.width)
+        let effectiveCroppedHeight = abs(croppedAndOrientedRect.height)
+
+        if effectiveCroppedWidth == 0 || effectiveCroppedHeight == 0 {
+            return transform  // Avoid division by zero, return current transform
+        }
+
+        // 3. Scale this cropped & oriented video to fit the targetSegmentSize.
+        let scaleX = targetSegmentSize.width / effectiveCroppedWidth
+        let scaleY = targetSegmentSize.height / effectiveCroppedHeight
+        transform = transform.concatenating(
+            CGAffineTransform(scaleX: scaleX, y: scaleY)
+        )
+
+        // 4. Translate this scaled video to its final position in the output composition.
+        var finalX: CGFloat = 0
+        var finalY: CGFloat = 0
+
+        if isTopSegment {
+            // Top segment's bottom-left corner will be at (0, outputCompositionSize.height / 2)
+            finalY = outputCompositionSize.height / 2
+        } else {
+            // Bottom segment's bottom-left corner will be at (0, 0)
+            finalY = 0
+        }
+
+        if transform.a * scaleX < 0 {
+            finalX += targetSegmentSize.width
+        }
+        // If preferredTransform.d < 0 (vertical flip, less common for camera)
+        // After scaling, its bottom edge (which was originally top) needs to be at finalY.
+        if transform.d * scaleY < 0 {  // If overall vertical scale is negative (flipped)
+            finalY += targetSegmentSize.height
+        }
+        transform = transform.concatenating(
+            CGAffineTransform(translationX: finalX, y: finalY)
+        )
+
+        return transform
+    }
+
+    private func removeIfExists(_ url: URL) {
+        if fileManager.fileExists(atPath: url.path) {
+            try? fileManager.removeItem(at: url)
+        }
+    }
 }
