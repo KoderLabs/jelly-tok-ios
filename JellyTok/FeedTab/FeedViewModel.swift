@@ -13,54 +13,52 @@ class FeedViewModel: ObservableObject {
     @Published var posts: [VideoPost] = []
     @Published var currentPostIndex: Int = 0 {
         didSet {
-            if oldValue != currentPostIndex,
-                posts.indices.contains(currentPostIndex)
-            {
-                playVideo(at: currentPostIndex)
+            if oldValue != currentPostIndex {
+                indexUpdateWorkItem?.cancel()
+                let workItem = DispatchWorkItem { [weak self] in
+                    self?.managePlayerLifecycleAndPlayback()
+                }
+                self.indexUpdateWorkItem = workItem
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + 0.1,
+                    execute: workItem
+                )  // Debounce retained
             } else if !posts.indices.contains(currentPostIndex)
                 && !posts.isEmpty
             {
-                activePlayer.replaceCurrentItem(with: nil)
+                DispatchQueue.main.async { self.isCurrentVideoPlaying = false }
             }
         }
     }
 
-    @Published var activePlayer: AVPlayer
-    @Published var isPlaying: Bool = false
+    @Published var isCurrentVideoPlaying: Bool = false
     @Published var initialLoadAttempted: Bool = false
 
-    private var playerItemsCache: [String: AVPlayerItem] = [:]
-    private var playerStatusObservation: NSKeyValueObservation?
-    private var playerItemStatusObservation: NSKeyValueObservation?
-    private var didPlayToEndObserver: Any?
-    private var cancellables = Set<AnyCancellable>()
+    private var playerContainerPool: [PlayerContainer] = []
+    private var activePlayerContainers: [String: PlayerContainer] = [:]
+    private let maxPoolSize = 3
+    private let preloadBuffer = 1
+    private let emptyPlayer = AVPlayer()
+    private var indexUpdateWorkItem: DispatchWorkItem?
+    private var globalMuteObservation: AnyCancellable?
 
     init() {
-        self.activePlayer = AVPlayer()
-        self.activePlayer.isMuted = false
-
-        // Observe player's status
-        playerStatusObservation = activePlayer.observe(
-            \.timeControlStatus,
-            options: [.initial, .new]
-        ) { [weak self] player, _ in
-            DispatchQueue.main.async {
-                self?.isPlaying = (player.timeControlStatus == .playing)
-            }
+        for _ in 0..<maxPoolSize {
+            playerContainerPool.append(PlayerContainer())
         }
         loadFeed()
     }
 
     deinit {
-        playerStatusObservation?.invalidate()
-        playerItemStatusObservation?.invalidate()
-        if let observer = didPlayToEndObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        activePlayer.replaceCurrentItem(with: nil)
+        indexUpdateWorkItem?.cancel()
+        activePlayerContainers.values.forEach { $0.resetForPooling() }
+        activePlayerContainers.removeAll()
+        playerContainerPool.removeAll()
     }
 
     func loadFeed() {
+        initialLoadAttempted = false
+
         let url = URL(
             string: "https://api-dev-nomadnest.kodefuse.com/test-json"
         )!
@@ -95,7 +93,7 @@ class FeedViewModel: ObservableObject {
                     DispatchQueue.main.async {
                         self.posts = loadedPosts
                         if !self.posts.isEmpty {
-                            self.playVideo(at: self.currentPostIndex)
+                            self.managePlayerLifecycleAndPlayback()
                         }
                     }
                 } catch {
@@ -110,13 +108,12 @@ class FeedViewModel: ObservableObject {
     private func loadLocalFeedFallback() {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            defer { self.initialLoadAttempted = true } 
             if let loadedPosts: [VideoPost] = Bundle.main.decode(
                 "MockData.json"
-            ) {  // Ensure MockData.json exists
+            ) {
                 self.posts = loadedPosts
                 if !self.posts.isEmpty {
-                    self.playVideo(at: self.currentPostIndex)
+                    self.managePlayerLifecycleAndPlayback()
                 }
             } else {
                 self.posts = []
@@ -124,11 +121,7 @@ class FeedViewModel: ObservableObject {
         }
     }
 
-    private func getPlayerItem(for post: VideoPost) -> AVPlayerItem? {
-        if let cachedItem = playerItemsCache[post.id] {
-            return cachedItem
-        }
-
+    private func createPlayerItem(for post: VideoPost) -> AVPlayerItem? {
         guard
             let url = Bundle.main.url(
                 forResource: post.videoFileName,
@@ -137,103 +130,214 @@ class FeedViewModel: ObservableObject {
         else {
             return nil
         }
-        let item = AVPlayerItem(url: url)
-        playerItemsCache[post.id] = item
-        return item
+        return AVPlayerItem(url: url)
     }
 
-    private func playVideo(at index: Int) {
-        guard posts.indices.contains(index) else {
-            activePlayer.replaceCurrentItem(with: nil)
+    private func getContainerForPost(_ post: VideoPost) -> PlayerContainer {
+        if let existingActive = activePlayerContainers[post.id] {
+            return existingActive
+        }
+
+        if !playerContainerPool.isEmpty {
+            let container = playerContainerPool.removeFirst()
+            return container
+        } else {
+            return PlayerContainer()
+        }
+    }
+
+    private func returnContainerToPool(_ container: PlayerContainer) {
+        container.resetForPooling()
+        if playerContainerPool.count < maxPoolSize {
+            playerContainerPool.append(container)
+        }
+    }
+
+    private func managePlayerLifecycleAndPlayback() {
+        guard !posts.isEmpty else {
+            DispatchQueue.main.async { self.isCurrentVideoPlaying = false }
+            return
+        }
+        guard posts.indices.contains(currentPostIndex) else {
+            DispatchQueue.main.async { self.isCurrentVideoPlaying = false }
+            activePlayerContainers.values.forEach { returnContainerToPool($0) }
+            activePlayerContainers.removeAll()
             return
         }
 
-        let post = posts[index]
-        guard let newItem = getPlayerItem(for: post) else {
-            activePlayer.replaceCurrentItem(with: nil)
-            return
+        let activeWindowStartIndex = max(0, currentPostIndex - preloadBuffer)
+        let activeWindowEndIndex = min(
+            posts.count - 1,
+            currentPostIndex + preloadBuffer
+        )
+
+        var newActiveContainersTemp: [String: PlayerContainer] = [:]
+        var postIDsInWindow = Set<String>()
+
+        for i in activeWindowStartIndex...activeWindowEndIndex {
+            let post = posts[i]
+            postIDsInWindow.insert(post.id)
+
+            var container: PlayerContainer
+            if let existingActive = activePlayerContainers[post.id] {
+                container = existingActive
+            } else {
+                container = getContainerForPost(post)
+                if let newPlayerItem = createPlayerItem(for: post) {
+                    _ = i
+                    container.configure(
+                        for: post.id,
+                        with: newPlayerItem,
+                        onIsPlayingChanged: {
+                            [weak self, postId = post.id] isPlaying in
+                            guard let self = self,
+                                self.posts.indices.contains(
+                                    self.currentPostIndex
+                                ),
+                                self.posts[self.currentPostIndex].id == postId
+                            else { return }
+                            DispatchQueue.main.async {
+                                if self.isCurrentVideoPlaying != isPlaying {
+                                    self.isCurrentVideoPlaying = isPlaying
+                                }
+                            }
+                        },
+                        onReadyToPlay: {},
+                        onPlayToEnd: { [weak container] in
+                            container?.seekToStartAndPlay()
+                        }
+                    )
+                }
+            }
+            newActiveContainersTemp[post.id] = container
         }
 
-        // Remove previous item's observers
-        if let currentItem = activePlayer.currentItem {
-            playerItemStatusObservation?.invalidate()
-            if let observer = didPlayToEndObserver {
-                NotificationCenter.default.removeObserver(
-                    observer,
-                    name: .AVPlayerItemDidPlayToEndTime,
-                    object: currentItem
-                )
+        let oldActiveKeys = Set(activePlayerContainers.keys)
+        let keysToReturnToPool = oldActiveKeys.subtracting(postIDsInWindow)
+
+        for key in keysToReturnToPool {
+            if let containerToReturn = activePlayerContainers.removeValue(
+                forKey: key
+            ) {
+                returnContainerToPool(containerToReturn)
+            }
+        }
+        activePlayerContainers = newActiveContainersTemp
+
+        for (postId, container) in activePlayerContainers {
+            guard
+                let postForContainer = posts.first(where: { $0.id == postId }),
+                let indexOfPostForContainer = posts.firstIndex(where: {
+                    $0.id == postForContainer.id
+                })
+            else {
+                continue
+            }
+
+            if indexOfPostForContainer == self.currentPostIndex {
+                if container.player.currentItem?.status == .readyToPlay
+                    && !container.isPlaying
+                {
+                    container.play()
+                }
+            } else {
+                if container.isPlaying
+                    || container.player.timeControlStatus == .playing
+                {
+                    container.pause()
+                }
             }
         }
 
-        activePlayer.replaceCurrentItem(with: newItem)
-
-        // Observe new item's status
-        playerItemStatusObservation = newItem.observe(
-            \.status,
-            options: [.new, .initial]
-        ) { [weak self] item, _ in
-            guard let self = self else { return }
-            if item.status == .readyToPlay {
-                self.activePlayer.play()
+        if let currentPost = posts.get(at: currentPostIndex),
+            let currentContainer = activePlayerContainers[currentPost.id]
+        {
+            let actualPlayingStatus = currentContainer.isPlaying
+            DispatchQueue.main.async {
+                if self.isCurrentVideoPlaying != actualPlayingStatus {
+                    self.isCurrentVideoPlaying = actualPlayingStatus
+                }
             }
-        }
-
-        // Loop the video
-        didPlayToEndObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: newItem,
-            queue: .main
-        ) { [weak self] _ in
-            self?.activePlayer.seek(to: .zero)
-            self?.activePlayer.play()
-        }
-
-        // Preload next item
-        preloadNextItem(currentIndex: index)
-    }
-
-    private func preloadNextItem(currentIndex: Int) {
-        let nextIndex = currentIndex + 1
-        if posts.indices.contains(nextIndex) {
-            let nextPost = posts[nextIndex]
-            if playerItemsCache[nextPost.id] == nil {
-                DispatchQueue.global(qos: .background).async { [weak self] in
-                    _ = self?.getPlayerItem(for: nextPost)  // Create and cache
+        } else {
+            DispatchQueue.main.async {
+                if self.isCurrentVideoPlaying {  // Only update if it was true
+                    self.isCurrentVideoPlaying = false
                 }
             }
         }
     }
 
+    func playerFor(post: VideoPost) -> AVPlayer {
+        if let container = activePlayerContainers[post.id] {
+            return container.player
+        }
+        return emptyPlayer
+    }
+
     func togglePlayback() {
-        if activePlayer.timeControlStatus == .playing {
-            activePlayer.pause()
-        } else if activePlayer.timeControlStatus == .paused {
-            if activePlayer.currentItem?.status == .readyToPlay {
-                activePlayer.play()
+        guard posts.indices.contains(currentPostIndex) else { return }
+        let currentPost = posts[currentPostIndex]
+        guard let container = activePlayerContainers[currentPost.id] else {
+            managePlayerLifecycleAndPlayback()
+            if let newContainer = activePlayerContainers[currentPost.id] {
+                newContainer.play()
+            }
+            return
+        }
+
+        if container.isPlaying {
+            container.pause()
+        } else {
+            if container.player.currentItem == nil {
+                if let newPlayerItem = createPlayerItem(for: currentPost) {
+                    container.configure(
+                        for: currentPost.id,
+                        with: newPlayerItem,
+                        onIsPlayingChanged: {
+                            [weak self, postId = currentPost.id] isPlaying in
+                            guard let self = self,
+                                self.posts.indices.contains(
+                                    self.currentPostIndex
+                                ),
+                                self.posts[self.currentPostIndex].id == postId
+                            else { return }
+                            DispatchQueue.main.async {
+                                if self.isCurrentVideoPlaying != isPlaying {
+                                    self.isCurrentVideoPlaying = isPlaying
+                                }
+                            }
+                        },
+                        onReadyToPlay: { [weak container] in container?.play()
+                        },
+                        onPlayToEnd: { [weak container] in
+                            container?.seekToStartAndPlay()
+                        }
+                    )
+                }
             } else {
-                playVideo(at: currentPostIndex)
+                container.play()
             }
         }
     }
 
     func onFeedAppear() {
-        if !posts.isEmpty && posts.indices.contains(currentPostIndex) {
-            if activePlayer.currentItem == nil {
-                playVideo(at: currentPostIndex)
-            } else if activePlayer.currentItem?.status == .readyToPlay {
-                activePlayer.play()
-            }
+        managePlayerLifecycleAndPlayback()
+        if let currentPost = posts.get(at: currentPostIndex),
+            let currentContainer = activePlayerContainers[currentPost.id],
+            currentContainer.player.currentItem?.status == .readyToPlay,
+            !currentContainer.isPlaying
+        {
+            currentContainer.play()
         }
     }
 
     func onFeedDisappear() {
-        activePlayer.pause()
-    }
-}
-
-extension FeedViewModel {
-    var loadFeedCalled: Bool {
-        return true
+        activePlayerContainers.values.forEach { container in
+            returnContainerToPool(container)
+        }
+        activePlayerContainers.removeAll()
+        DispatchQueue.main.async {
+            self.isCurrentVideoPlaying = false
+        }
     }
 }

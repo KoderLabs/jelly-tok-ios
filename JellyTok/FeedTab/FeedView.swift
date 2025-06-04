@@ -61,8 +61,8 @@ struct FeedView: View {
                 ) { index, post in
                     FeedVideoView(
                         post: post,
-                        player: viewModel.activePlayer,
-                        isPlaying: $viewModel.isPlaying,
+                        player: viewModel.playerFor(post: post),
+                        isPlaying: $viewModel.isCurrentVideoPlaying,
                         isCurrentVideo: index == viewModel.currentPostIndex,
                         geo: geo,
                         onSelectTab: { selectedTab = .roll },
