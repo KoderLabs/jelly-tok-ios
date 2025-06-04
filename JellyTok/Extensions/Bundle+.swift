@@ -10,18 +10,17 @@ import Foundation
 extension Bundle {
     func decode<T: Decodable>(_ file: String) -> T? {
         guard let url = self.url(forResource: file, withExtension: nil) else {
-            debugPrint("📁 Could not find \(file) in bundle.")
             return nil
         }
-        
+        guard let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
         do {
-            let data = try Data(contentsOf: url)
-            let decoder = JSONDecoder()
-            return try decoder.decode(T.self, from: data)
+            let loaded = try decoder.decode(T.self, from: data)
+            return loaded
         } catch {
-            debugPrint("Error decoding \(file): \(error)")
             return nil
         }
     }
 }
-

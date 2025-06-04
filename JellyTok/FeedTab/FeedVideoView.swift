@@ -10,63 +10,42 @@ import SwiftUI
 
 struct FeedVideoView: View {
     let post: VideoPost
-    let index: Int
+    let player: AVPlayer
+    @Binding var isPlaying: Bool
+    let isCurrentVideo: Bool
     let geo: GeometryProxy
 
     let onSelectTab: () -> Void
     let onOpenDevSheet: () -> Void
-    let player: AVPlayer?
+    let onTogglePlayback: () -> Void
 
-    @State private var showPlayPauseIcon = false
-    @State private var isPlaying = true
+    @State private var showPlayPauseIndicator = false
 
     var body: some View {
-
         ZStack(alignment: .top) {
-            if let player = player {
-                VideoPlayer(player: player)
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                    .onAppear {
-                        player.isMuted = false
-                        player.seek(to: .zero)
-                        player.play()
-                    }
-                    .onDisappear {
-                        player.isMuted = true
-                        player.pause()
-                    }
-            } else {
-                Color.black
-                    .frame(width: geo.size.width, height: geo.size.height)
-            }
+            // Video Player Layer
+            VideoPlayer(player: player)
+                .aspectRatio(contentMode: .fill)
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
+                .disabled(true)
+                .id(post.id)
 
+            // Transparent Tap Gesture Overlay
             Color.clear
+                .frame(width: geo.size.width, height: geo.size.height)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    if let player = player {
-                        if player.timeControlStatus == .playing {
-                            player.pause()
-                            isPlaying = false
-                        } else {
-                            player.play()
-                            isPlaying = true
-                        }
-
+                    onTogglePlayback()
+                    showPlayPauseIndicator = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         withAnimation {
-                            showPlayPauseIcon = true
-                        }
-                        DispatchQueue.main.asyncAfter(
-                            deadline: .now() + 0.5
-                        ) {
-                            withAnimation {
-                                showPlayPauseIcon = false
-                            }
+                            showPlayPauseIndicator = false
                         }
                     }
                 }
 
+            // Gradient Overlay
             LinearGradient(
                 gradient: Gradient(colors: [
                     Color.black.opacity(0.6), .clear,
@@ -77,31 +56,33 @@ struct FeedVideoView: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .allowsHitTesting(false)
 
+            // Post Info Overlay
             PostOverlayView(
                 post: post,
                 action: onSelectTab,
                 onTap: onOpenDevSheet
             )
-            .frame(maxWidth: geo.size.width)
             .padding(.bottom, 80)
 
-            if showPlayPauseIcon {
+            // Play/Pause Indicator
+            if showPlayPauseIndicator {
                 VStack {
                     Spacer()
                     Image(
-                        systemName: isPlaying ? "pause.fill" : "play.fill"
+                        systemName: self.isPlaying ? "pause.fill" : "play.fill"
                     )
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 60, height: 60)
-                    .foregroundColor(.white)
-                    .transition(.opacity)
+                    .frame(width: 50, height: 50)
+                    .foregroundColor(.white.opacity(0.7))
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .zIndex(1)
                     Spacer()
                 }
+
             }
         }
         .frame(width: geo.size.width, height: geo.size.height)
-        .tag(index)
         .ignoresSafeArea()
     }
 }
