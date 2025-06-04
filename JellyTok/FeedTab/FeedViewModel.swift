@@ -72,7 +72,7 @@ class FeedViewModel: ObservableObject {
                 }
             }
 
-            if let _ = error {
+            if error != nil {
                 self.loadLocalFeedFallback()
                 return
             }
@@ -184,7 +184,8 @@ class FeedViewModel: ObservableObject {
             } else {
                 container = getContainerForPost(post)
                 if let newPlayerItem = createPlayerItem(for: post) {
-                    _ = i
+                    let postIndexBeingConfigured = i
+
                     container.configure(
                         for: post.id,
                         with: newPlayerItem,
@@ -202,7 +203,18 @@ class FeedViewModel: ObservableObject {
                                 }
                             }
                         },
-                        onReadyToPlay: {},
+                        onReadyToPlay: { [weak self, weak container] _ in
+                            guard let self = self,
+                                let readyContainer = container
+                            else { return }
+
+                            if postIndexBeingConfigured == self.currentPostIndex
+                            {
+                                readyContainer.play()
+                            } else {
+                                readyContainer.pause()
+                            }
+                        },
                         onPlayToEnd: { [weak container] in
                             container?.seekToStartAndPlay()
                         }
@@ -307,7 +319,8 @@ class FeedViewModel: ObservableObject {
                                 }
                             }
                         },
-                        onReadyToPlay: { [weak container] in container?.play()
+                        onReadyToPlay: { [weak container] _ in
+                            container?.play()
                         },
                         onPlayToEnd: { [weak container] in
                             container?.seekToStartAndPlay()

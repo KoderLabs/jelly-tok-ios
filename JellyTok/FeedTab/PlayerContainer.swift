@@ -48,7 +48,7 @@ class PlayerContainer {
         for postId: String,
         with item: AVPlayerItem,
         onIsPlayingChanged: @escaping (Bool) -> Void,
-        onReadyToPlay: @escaping () -> Void,
+        onReadyToPlay: @escaping (_ isCurrentVideo: Bool) -> Void,
         onPlayToEnd: @escaping () -> Void
     ) {
         self.postId = postId
@@ -70,7 +70,7 @@ class PlayerContainer {
         ) { [weak self] observedItem, _ in
             guard let self = self, self.postId == postId else { return }
             if observedItem.status == .readyToPlay {
-                onReadyToPlay()
+                onReadyToPlay(self.player === self.player)
             }
         }
 
